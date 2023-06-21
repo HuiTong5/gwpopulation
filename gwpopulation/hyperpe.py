@@ -122,8 +122,7 @@ class HyperparameterLikelihood(Likelihood):
         """
         Compute the ln likelihood estimator and its variance.
         """
-        self.parameters, added_keys = self.conversion_function(self.parameters)
-        self.hyper_prior.parameters.update(self.parameters)
+        added_keys = self.update_parameters()
         ln_bayes_factors, variances = self._compute_per_event_ln_bayes_factors()
         ln_l = xp.sum(ln_bayes_factors)
         variance = xp.sum(variances)
@@ -199,8 +198,7 @@ class HyperparameterLikelihood(Likelihood):
             The input dict, modified in place.
         """
         self.parameters.update(sample.copy())
-        self.parameters, added_keys = self.conversion_function(self.parameters)
-        self.hyper_prior.parameters.update(self.parameters)
+        added_keys = self.update_parameters()
         ln_ls, variances = self._compute_per_event_ln_bayes_factors(
             return_uncertainty=True
         )
@@ -285,6 +283,11 @@ class HyperparameterLikelihood(Likelihood):
         for key in data:
             data[key] = xp.array(data[key])
         return data
+    
+    def update_parameters(self):
+        self.parameters, added_keys = self.conversion_function(self.parameters)
+        self.hyper_prior.parameters.update(self.parameters)
+        return added_keys
 
     def posterior_predictive_resample(self, samples, return_weights=False):
         """
@@ -364,6 +367,134 @@ class HyperparameterLikelihood(Likelihood):
         )
 
 
+class HyperparameterMultiLikelihood(HyperparameterLikelihood):
+    """
+    A likelihood for inferring hyperparameter posterior distributions
+    of two sub-populations using unique datasets.
+    """
+    def __init__(
+        self,
+        posteriors,
+        posteriors2,
+        hyper_prior,
+        hyper_prior2,
+        ln_evidences,
+        ln_evidences2,
+        max_samples=1e100,
+        selection_function=lambda args: 1,
+        conversion_function=lambda args: (args, None),
+        cupy=True,
+        maximum_uncertainty=xp.inf,
+    ):
+        """
+        Parameters
+        ----------
+        posteriors: list
+            An list of pandas data frames of samples sets of samples.
+            Each set may have a different size.
+            These can contain a `prior` column containing the original prior
+            values.
+        hyper_prior: `bilby.hyper.model.Model`
+            The population model, this can alternatively be a function.
+        ln_evidences: list, optional
+            Log evidences for single runs to ensure proper normalisation
+            of the hyperparameter likelihood. If not provided, the original
+            evidences will be set to 0. This produces a Bayes factor between
+            the sampling power_prior and the hyperparameterised model.
+        selection_function: func
+            Function which evaluates your population selection function.
+        conversion_function: func
+            Function which converts a dictionary of sampled parameter to a
+            dictionary of parameters of the population model.
+        max_samples: int, optional
+            Maximum number of samples to use from each set.
+        cupy: bool
+            If True and a compatible CUDA environment is available,
+            cupy will be used for performance.
+            Note: this requires setting up your hyper_prior properly.
+        maximum_uncertainty: float
+            The maximum allowed uncertainty in the natural log likelihood.
+            If the uncertainty is larger than this value a log likelihood of
+            -inf will be returned. Default = inf
+        """
+        super(HyperparameterMultiLikelihood, self).__init__(
+            posteriors,
+            hyper_prior,
+            ln_evidences,
+            max_samples,
+            selection_function,
+            conversion_function,
+            cupy,
+            maximum_uncertainty
+        )
+        
+        self.samples_per_posterior2 = max_samples
+        self.data2 = self.resample_posteriors(posteriors2, max_samples=max_samples)
+        
+        if isinstance(hyper_prior2, types.FunctionType):
+            hyper_prior2 = Model([hyper_prior2])
+        elif not (
+            hasattr(hyper_prior2, "parameters")
+            and callable(getattr(hyper_prior2, "prob"))
+        ):
+            raise AttributeError(
+                "hyper_prior2 must either be a function, "
+                "or a class with attribute 'parameters' and method 'prob'"
+            )
+        self.hyper_prior2 = hyper_prior2
+        
+        if "prior" in self.data2:
+            self.sampling_prior2 = self.data2.pop("prior")
+        else:
+            logger.info("No prior values (second) provided, defaulting to 1.")
+            self.sampling_prior2 = 1
+            
+        self.total_noise_evidence2 = np.sum(ln_evidences2)
+        
+    def update_parameters(self):
+        added_keys = super(HyperparameterMultiLikelihood, self).update_parameters()
+        self.hyper_prior2.parameters.update(self.parameters)
+        return added_keys
+    
+    def _compute_per_event_ln_bayes_factors(self, return_uncertainty=True):
+        weights1 = self.hyper_prior.prob(self.data) / self.sampling_prior
+        weights2 = self.hyper_prior2.prob(self.data2) / self.sampling_prior2
+        expectation1 = xp.mean(weights1, axis=-1)
+        expectation2 = xp.mean(weights2, axis=-1)
+        expectation = self.parameters["likelihood_mix"] * expectation1 + (
+            1. - self.parameters["likelihood_mix"]) * xp.exp(
+            self.total_noise_evidence2 - self.total_noise_evidence) * expectation2
+        if return_uncertainty:
+            square_expectation1 = xp.mean(weights1**2, axis=-1)
+            square_expectation2 = xp.mean(weights2**2, axis=-1)
+            numerator1 = self.parameters["likelihood_mix"]**2 * (
+                square_expectation1 - expectation1**2) / self.samples_per_posterior
+            numerator2 = ((1. - self.parameters["likelihood_mix"]) * xp.exp(
+                self.total_noise_evidence2 - self.total_noise_evidence))**2 * (
+                square_expectation2 - expectation2**2) / self.samples_per_posterior2
+            variance = (numerator1 - numerator2) / expectation**2
+            return xp.log(expectation), variance
+        else:
+            return xp.log(expectation)
+        
+    def posterior_predictive_resample(self, samples, return_weights=False):
+        raise NotImplementedError
+        
+    @property
+    def meta_data(self):
+        return dict(
+            model1=[get_name(model) for model in self.hyper_prior.models],
+            model2=[get_name(model) for model in self.hyper_prior2.models],
+            data1={key: to_numpy(self.data[key]) for key in self.data},
+            data2={key: to_numpy(self.data2[key]) for key in self.data2},
+            n_events=self.n_posteriors,
+            sampling_prior1=to_numpy(self.sampling_prior),
+            sampling_prior2=to_numpy(self.sampling_prior2),
+            samples_per_posterior1=self.samples_per_posterior,
+            samples_per_posterior2=self.samples_per_posterior2,
+        )
+
+        
 class RateLikelihood(HyperparameterLikelihood):
     """
     A likelihood for inferring hyperparameter posterior distributions
