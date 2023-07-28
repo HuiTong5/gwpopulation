@@ -93,8 +93,10 @@ class HyperparameterLikelihood(Likelihood):
             self.sampling_prior = 1
 
         if ln_evidences is not None:
+            self.evidences =  xp.asarray(ln_evidences)
             self.total_noise_evidence = np.sum(ln_evidences)
         else:
+            self.evidences = np.nan
             self.total_noise_evidence = np.nan
 
         self.conversion_function = conversion_function
@@ -367,7 +369,7 @@ class HyperparameterLikelihood(Likelihood):
         )
 
 
-class HyperparameterMultiLikelihood(HyperparameterLikelihood):
+class HyperparameterTwoLikelihood(HyperparameterLikelihood):
     """
     A likelihood for inferring hyperparameter posterior distributions
     of two sub-populations using unique datasets.
@@ -417,7 +419,7 @@ class HyperparameterMultiLikelihood(HyperparameterLikelihood):
             If the uncertainty is larger than this value a log likelihood of
             -inf will be returned. Default = inf
         """
-        super(HyperparameterMultiLikelihood, self).__init__(
+        super(HyperparameterTwoLikelihood, self).__init__(
             posteriors,
             hyper_prior,
             ln_evidences,
@@ -448,11 +450,12 @@ class HyperparameterMultiLikelihood(HyperparameterLikelihood):
         else:
             logger.info("No prior values (second) provided, defaulting to 1.")
             self.sampling_prior2 = 1
-            
+        
+        self.evidences2 = xp.asarray(ln_evidences2)
         self.total_noise_evidence2 = np.sum(ln_evidences2)
         
     def update_parameters(self):
-        added_keys = super(HyperparameterMultiLikelihood, self).update_parameters()
+        added_keys = super(HyperparameterTwoLikelihood, self).update_parameters()
         self.hyper_prior2.parameters.update(self.parameters)
         return added_keys
     
@@ -463,16 +466,16 @@ class HyperparameterMultiLikelihood(HyperparameterLikelihood):
         expectation2 = xp.mean(weights2, axis=-1)
         expectation = self.parameters["likelihood_mix"] * expectation1 + (
             1. - self.parameters["likelihood_mix"]) * xp.exp(
-            self.total_noise_evidence2 - self.total_noise_evidence) * expectation2
+            self.evidences2 - self.evidences) * expectation2
         if return_uncertainty:
             square_expectation1 = xp.mean(weights1**2, axis=-1)
             square_expectation2 = xp.mean(weights2**2, axis=-1)
             numerator1 = self.parameters["likelihood_mix"]**2 * (
                 square_expectation1 - expectation1**2) / self.samples_per_posterior
             numerator2 = ((1. - self.parameters["likelihood_mix"]) * xp.exp(
-                self.total_noise_evidence2 - self.total_noise_evidence))**2 * (
+                self.evidences2 - self.evidences))**2 * (
                 square_expectation2 - expectation2**2) / self.samples_per_posterior2
-            variance = (numerator1 - numerator2) / expectation**2
+            variance = (numerator1 + numerator2) / expectation**2
             return xp.log(expectation), variance
         else:
             return xp.log(expectation)
