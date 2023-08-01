@@ -59,6 +59,24 @@ def iid_spin_magnitude_beta(dataset, amax=1, alpha_chi=1, beta_chi=1):
     )
 
 
+def iip_spin_magnitude_beta(dataset, amax=1, alpha_chi=1, beta_chi=1):
+    """
+    """
+    if alpha_chi < 0 or beta_chi < 0:
+        return 0
+    prior = beta_dist(dataset["a_1"], alpha_chi, beta_chi, scale=amax)
+    return prior
+
+
+def iis_spin_magnitude_beta(dataset, amax=1, alpha_chi=1, beta_chi=1):
+    """
+    """
+    if alpha_chi < 0 or beta_chi < 0:
+        return 0
+    prior = beta_dist(dataset["a_2"], alpha_chi, beta_chi, scale=amax)
+    return prior
+
+
 def independent_spin_magnitude_beta(
     dataset, alpha_chi_1, alpha_chi_2, beta_chi_1, beta_chi_2, amax_1, amax_2
 ):
@@ -112,6 +130,20 @@ def iid_spin_orientation_gaussian_isotropic(dataset, xi_spin, sigma_spin):
     return independent_spin_orientation_gaussian_isotropic(
         dataset, xi_spin, sigma_spin, sigma_spin
     )
+
+
+def iip_spin_orientation_gaussian_isotropic(dataset, sigma_spin):
+    r"""
+    """
+    prior = truncnorm(dataset["cos_tilt_1"], 1, sigma_spin, 1, -1)
+    return prior
+
+
+def iis_spin_orientation_gaussian_isotropic(dataset, sigma_spin):
+    r"""
+    """
+    prior = truncnorm(dataset["cos_tilt_2"], 1, sigma_spin, 1, -1)
+    return prior
 
 
 def independent_spin_orientation_gaussian_isotropic(dataset, xi_spin, sigma_1, sigma_2):
