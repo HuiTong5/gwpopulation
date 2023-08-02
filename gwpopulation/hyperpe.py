@@ -448,11 +448,10 @@ class HyperparameterTwoLikelihood(HyperparameterLikelihood):
         if "prior" in self.data2:
             self.sampling_prior2 = self.data2.pop("prior")
         else:
-            logger.info("No prior values (second) provided, defaulting to 1.")
+            logger.info("No prior values provided for set 2, defaulting to 1.")
             self.sampling_prior2 = 1
         
         self.evidences2 = xp.asarray(ln_evidences2)
-        self.total_noise_evidence2 = np.sum(ln_evidences2)
         
     def update_parameters(self):
         added_keys = super(HyperparameterTwoLikelihood, self).update_parameters()
@@ -472,8 +471,8 @@ class HyperparameterTwoLikelihood(HyperparameterLikelihood):
             square_expectation2 = xp.mean(weights2**2, axis=-1)
             numerator1 = self.parameters["likelihood_mix"]**2 * (
                 square_expectation1 - expectation1**2) / self.samples_per_posterior
-            numerator2 = ((1. - self.parameters["likelihood_mix"]) * xp.exp(
-                self.evidences2 - self.evidences))**2 * (
+            numerator2 = ((1. - self.parameters["likelihood_mix"]) *
+                xp.exp(self.evidences2 - self.evidences))**2 * (
                 square_expectation2 - expectation2**2) / self.samples_per_posterior2
             variance = (numerator1 + numerator2) / expectation**2
             return xp.log(expectation), variance
@@ -486,16 +485,324 @@ class HyperparameterTwoLikelihood(HyperparameterLikelihood):
     @property
     def meta_data(self):
         return dict(
-            model1=[get_name(model) for model in self.hyper_prior.models],
+            model=[get_name(model) for model in self.hyper_prior.models],
             model2=[get_name(model) for model in self.hyper_prior2.models],
-            data1={key: to_numpy(self.data[key]) for key in self.data},
+            data={key: to_numpy(self.data[key]) for key in self.data},
             data2={key: to_numpy(self.data2[key]) for key in self.data2},
             n_events=self.n_posteriors,
-            sampling_prior1=to_numpy(self.sampling_prior),
+            sampling_prior=to_numpy(self.sampling_prior),
             sampling_prior2=to_numpy(self.sampling_prior2),
-            samples_per_posterior1=self.samples_per_posterior,
+            samples_per_posterior=self.samples_per_posterior,
             samples_per_posterior2=self.samples_per_posterior2,
         )
+
+    
+class HyperparameterThreeLikelihood(HyperparameterTwoLikelihood):
+    """
+    A likelihood for inferring hyperparameter posterior distributions
+    of three sub-populations using unique datasets.
+    """
+    def __init__(
+        self,
+        posteriors,
+        posteriors2,
+        posteriors3,
+        hyper_prior,
+        hyper_prior2,
+        hyper_prior3,
+        ln_evidences,
+        ln_evidences2,
+        ln_evidences3,
+        max_samples=1e100,
+        selection_function=lambda args: 1,
+        conversion_function=lambda args: (args, None),
+        cupy=True,
+        maximum_uncertainty=xp.inf,
+    ):
+        """
+        Parameters
+        ----------
+        posteriors: list
+            An list of pandas data frames of samples sets of samples.
+            Each set may have a different size.
+            These can contain a `prior` column containing the original prior
+            values.
+        hyper_prior: `bilby.hyper.model.Model`
+            The population model, this can alternatively be a function.
+        ln_evidences: list, optional
+            Log evidences for single runs to ensure proper normalisation
+            of the hyperparameter likelihood. If not provided, the original
+            evidences will be set to 0. This produces a Bayes factor between
+            the sampling power_prior and the hyperparameterised model.
+        selection_function: func
+            Function which evaluates your population selection function.
+        conversion_function: func
+            Function which converts a dictionary of sampled parameter to a
+            dictionary of parameters of the population model.
+        max_samples: int, optional
+            Maximum number of samples to use from each set.
+        cupy: bool
+            If True and a compatible CUDA environment is available,
+            cupy will be used for performance.
+            Note: this requires setting up your hyper_prior properly.
+        maximum_uncertainty: float
+            The maximum allowed uncertainty in the natural log likelihood.
+            If the uncertainty is larger than this value a log likelihood of
+            -inf will be returned. Default = inf
+        """
+        super(HyperparameterThreeLikelihood, self).__init__(
+            posteriors,
+            posteriors2,
+            hyper_prior,
+            hyper_prior2,
+            ln_evidences,
+            ln_evidences2,
+            max_samples,
+            selection_function,
+            conversion_function,
+            cupy,
+            maximum_uncertainty
+        )
+        
+        self.samples_per_posterior3 = max_samples
+        self.data3 = self.resample_posteriors(posteriors3, max_samples=max_samples)
+        
+        if isinstance(hyper_prior3, types.FunctionType):
+            hyper_prior3 = Model([hyper_prior3])
+        elif not (
+            hasattr(hyper_prior3, "parameters")
+            and callable(getattr(hyper_prior3, "prob"))
+        ):
+            raise AttributeError(
+                "hyper_prior3 must either be a function, "
+                "or a class with attribute 'parameters' and method 'prob'"
+            )
+        self.hyper_prior3 = hyper_prior3
+        
+        if "prior" in self.data3:
+            self.sampling_prior3 = self.data3.pop("prior")
+        else:
+            logger.info("No prior values provided for set 3, defaulting to 1.")
+            self.sampling_prior3 = 1
+        
+        self.evidences3 = xp.asarray(ln_evidences3)
+        
+    def update_parameters(self):
+        added_keys = super(HyperparameterThreeLikelihood, self).update_parameters()
+        self.hyper_prior3.parameters.update(self.parameters)
+        return added_keys
+    
+    def _compute_per_event_ln_bayes_factors(self, return_uncertainty=True):
+        weights1 = self.hyper_prior.prob(self.data) / self.sampling_prior
+        weights2 = self.hyper_prior2.prob(self.data2) / self.sampling_prior2
+        weights3 = self.hyper_prior3.prob(self.data3) / self.sampling_prior3
+        expectation1 = xp.mean(weights1, axis=-1)
+        expectation2 = xp.mean(weights2, axis=-1)
+        expectation3 = xp.mean(weights3, axis=-1)
+        expectation = self.parameters["likelihood_mix"] * expectation1 + (
+            1. - self.parameters["likelihood_mix"]) * (self.parameters["likelihood_mix2"] *
+            xp.exp(self.evidences2 - self.evidences) * expectation2 + (1. - self.parameters["likelihood_mix2"]) *
+            xp.exp(self.evidences3 - self.evidences) * expectation3)
+        if return_uncertainty:
+            square_expectation1 = xp.mean(weights1**2, axis=-1)
+            square_expectation2 = xp.mean(weights2**2, axis=-1)
+            square_expectation3 = xp.mean(weights3**2, axis=-1)
+            numerator1 = self.parameters["likelihood_mix"]**2 * (
+                square_expectation1 - expectation1**2) / self.samples_per_posterior
+            numerator2 = ((1. - self.parameters["likelihood_mix"]) *
+                           self.parameters["likelihood_mix2"] *
+                           xp.exp(self.evidences2 - self.evidences))**2 * (
+                square_expectation2 - expectation2**2) / self.samples_per_posterior2
+            numerator3 = ((1. - self.parameters["likelihood_mix"]) *
+                          (1. - self.parameters["likelihood_mix2"]) *
+                           xp.exp(self.evidences3 - self.evidences))**2 * (
+                square_expectation3 - expectation3**2) / self.samples_per_posterior3
+            variance = (numerator1 + numerator2 + numerator3) / expectation**2
+            return xp.log(expectation), variance
+        else:
+            return xp.log(expectation)
+        
+    @property
+    def meta_data(self):
+        return dict(
+            model=[get_name(model) for model in self.hyper_prior.models],
+            model2=[get_name(model) for model in self.hyper_prior2.models],
+            model3=[get_name(model) for model in self.hyper_prior3.models],
+            data={key: to_numpy(self.data[key]) for key in self.data},
+            data2={key: to_numpy(self.data2[key]) for key in self.data2},
+            data3={key: to_numpy(self.data3[key]) for key in self.data3},
+            n_events=self.n_posteriors,
+            sampling_prior=to_numpy(self.sampling_prior),
+            sampling_prior2=to_numpy(self.sampling_prior2),
+            sampling_prior3=to_numpy(self.sampling_prior3),
+            samples_per_posterior=self.samples_per_posterior,
+            samples_per_posterior2=self.samples_per_posterior2,
+            samples_per_posterior3=self.samples_per_posterior3,
+        )
+
+    
+class HyperparameterFourLikelihood(HyperparameterThreeLikelihood):
+    """
+    A likelihood for inferring hyperparameter posterior distributions
+    of three sub-populations using unique datasets.
+    """
+    def __init__(
+        self,
+        posteriors,
+        posteriors2,
+        posteriors3,
+        posteriors4,
+        hyper_prior,
+        hyper_prior2,
+        hyper_prior3,
+        hyper_prior4,
+        ln_evidences,
+        ln_evidences2,
+        ln_evidences3,
+        ln_evidences4,
+        max_samples=1e100,
+        selection_function=lambda args: 1,
+        conversion_function=lambda args: (args, None),
+        cupy=True,
+        maximum_uncertainty=xp.inf,
+    ):
+        """
+        Parameters
+        ----------
+        posteriors: list
+            An list of pandas data frames of samples sets of samples.
+            Each set may have a different size.
+            These can contain a `prior` column containing the original prior
+            values.
+        hyper_prior: `bilby.hyper.model.Model`
+            The population model, this can alternatively be a function.
+        ln_evidences: list, optional
+            Log evidences for single runs to ensure proper normalisation
+            of the hyperparameter likelihood. If not provided, the original
+            evidences will be set to 0. This produces a Bayes factor between
+            the sampling power_prior and the hyperparameterised model.
+        selection_function: func
+            Function which evaluates your population selection function.
+        conversion_function: func
+            Function which converts a dictionary of sampled parameter to a
+            dictionary of parameters of the population model.
+        max_samples: int, optional
+            Maximum number of samples to use from each set.
+        cupy: bool
+            If True and a compatible CUDA environment is available,
+            cupy will be used for performance.
+            Note: this requires setting up your hyper_prior properly.
+        maximum_uncertainty: float
+            The maximum allowed uncertainty in the natural log likelihood.
+            If the uncertainty is larger than this value a log likelihood of
+            -inf will be returned. Default = inf
+        """
+        super(HyperparameterFourLikelihood, self).__init__(
+            posteriors,
+            posteriors2,
+            posteriors3,
+            hyper_prior,
+            hyper_prior2,
+            hyper_prior3,
+            ln_evidences,
+            ln_evidences2,
+            ln_evidences3,
+            max_samples,
+            selection_function,
+            conversion_function,
+            cupy,
+            maximum_uncertainty
+        )
+        
+        self.samples_per_posterior4 = max_samples
+        self.data4 = self.resample_posteriors(posteriors4, max_samples=max_samples)
+        
+        if isinstance(hyper_prior4, types.FunctionType):
+            hyper_prior4 = Model([hyper_prior4])
+        elif not (
+            hasattr(hyper_prior4, "parameters")
+            and callable(getattr(hyper_prior4, "prob"))
+        ):
+            raise AttributeError(
+                "hyper_prior4 must either be a function, "
+                "or a class with attribute 'parameters' and method 'prob'"
+            )
+        self.hyper_prior4 = hyper_prior4
+        
+        if "prior" in self.data4:
+            self.sampling_prior4 = self.data4.pop("prior")
+        else:
+            logger.info("No prior values provided for set 4, defaulting to 1.")
+            self.sampling_prior4 = 1
+        
+        self.evidences4 = xp.asarray(ln_evidences4)
+        
+    def update_parameters(self):
+        added_keys = super(HyperparameterFourLikelihood, self).update_parameters()
+        self.hyper_prior4.parameters.update(self.parameters)
+        return added_keys
+    
+    def _compute_per_event_ln_bayes_factors(self, return_uncertainty=True):
+        weights1 = self.hyper_prior.prob(self.data) / self.sampling_prior
+        weights2 = self.hyper_prior2.prob(self.data2) / self.sampling_prior2
+        weights3 = self.hyper_prior3.prob(self.data3) / self.sampling_prior3
+        weights4 = self.hyper_prior4.prob(self.data4) / self.sampling_prior4
+        expectation1 = xp.mean(weights1, axis=-1)
+        expectation2 = xp.mean(weights2, axis=-1)
+        expectation3 = xp.mean(weights3, axis=-1)
+        expectation4 = xp.mean(weights4, axis=-1)
+        expectation = self.parameters["likelihood_mix"] * expectation1 + (
+            1. - self.parameters["likelihood_mix"]) * (self.parameters["likelihood_mix2"] *
+            xp.exp(self.evidences2 - self.evidences) * expectation2 + (1. - self.parameters["likelihood_mix2"]) * (
+            self.parameters["likelihood_mix3"] * xp.exp(self.evidences3 - self.evidences) * expectation3 +
+            (1. - self.parameters["likelihood_mix3"]) * xp.exp(self.evidences4 - self.evidences) * expectation4))
+        if return_uncertainty:
+            square_expectation1 = xp.mean(weights1**2, axis=-1)
+            square_expectation2 = xp.mean(weights2**2, axis=-1)
+            square_expectation3 = xp.mean(weights3**2, axis=-1)
+            square_expectation4 = xp.mean(weights4**2, axis=-1)
+            numerator1 = self.parameters["likelihood_mix"]**2 * (
+                square_expectation1 - expectation1**2) / self.samples_per_posterior
+            numerator2 = ((1. - self.parameters["likelihood_mix"]) *
+                           self.parameters["likelihood_mix2"] *
+                           xp.exp(self.evidences2 - self.evidences))**2 * (
+                square_expectation2 - expectation2**2) / self.samples_per_posterior2
+            numerator3 = ((1. - self.parameters["likelihood_mix"]) *
+                          (1. - self.parameters["likelihood_mix2"]) *
+                           self.parameters["likelihood_mix3"] *
+                           xp.exp(self.evidences3 - self.evidences))**2 * (
+                square_expectation3 - expectation3**2) / self.samples_per_posterior3
+            numerator4 = ((1. - self.parameters["likelihood_mix"]) *
+                          (1. - self.parameters["likelihood_mix2"]) *
+                          (1. - self.parameters["likelihood_mix3"]) *
+                           xp.exp(self.evidences4 - self.evidences))**2 * (
+                square_expectation4 - expectation4**2) / self.samples_per_posterior4
+            variance = (numerator1 + numerator2 + numerator3 + numerator4) / expectation**2
+            return xp.log(expectation), variance
+        else:
+            return xp.log(expectation)
+        
+    @property
+    def meta_data(self):
+        return dict(
+            model=[get_name(model) for model in self.hyper_prior.models],
+            model2=[get_name(model) for model in self.hyper_prior2.models],
+            model3=[get_name(model) for model in self.hyper_prior3.models],
+            model4=[get_name(model) for model in self.hyper_prior4.models],
+            data={key: to_numpy(self.data[key]) for key in self.data},
+            data2={key: to_numpy(self.data2[key]) for key in self.data2},
+            data3={key: to_numpy(self.data3[key]) for key in self.data3},
+            data4={key: to_numpy(self.data4[key]) for key in self.data4},
+            n_events=self.n_posteriors,
+            sampling_prior=to_numpy(self.sampling_prior),
+            sampling_prior2=to_numpy(self.sampling_prior2),
+            sampling_prior3=to_numpy(self.sampling_prior3),
+            sampling_prior4=to_numpy(self.sampling_prior4),
+            samples_per_posterior=self.samples_per_posterior,
+            samples_per_posterior2=self.samples_per_posterior2,
+            samples_per_posterior3=self.samples_per_posterior3,
+            samples_per_posterior4=self.samples_per_posterior4,
+        )    
 
         
 class RateLikelihood(HyperparameterLikelihood):
