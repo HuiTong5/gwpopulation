@@ -2,8 +2,8 @@
 Implemented spin models
 """
 
-from ..cupy_utils import xp
-from ..utils import beta_dist, truncnorm, unnormalized_2d_gaussian
+from ..cupy_utils import xp, trapz
+from ..utils import beta_dist, truncnorm, unnormalized_2d_gaussian, truncskewnorm
 from .interped import InterpolatedNoBaseModelIdentical
 
 
@@ -350,6 +350,63 @@ class GaussianChiEffChiP(object):
         return xp.trapz(
             y=xp.trapz(y=prob, axis=-1, x=self.chi_eff), axis=-1, x=self.chi_p
         )
+
+
+class EffectiveSpin(object):
+    """
+    """
+    def __init__(self):
+        self.chi_eff_diff = xp.linspace(-1, 1, 500)
+        
+    def __call__(self, dataset,
+                 xi_eff, omega_eff, skew_eff,
+                 xi_diff, omega_diff, skew_diff,
+                 alpha_rho, beta_rho):
+        prob = self.p_chi_eff(dataset["chi_eff"], xi_eff, omega_eff, skew_eff)
+        prob /= self.norm_p_chi_eff(xi_eff, omega_eff, skew_eff)
+        prob *= self.p_chi_diff(dataset["chi_diff"], xi_diff, omega_diff, skew_diff)
+        prob /= self.norm_p_chi_diff(xi_diff, omega_diff, skew_diff)
+        prob *= self.p_rho(dataset, alpha_rho, beta_rho)
+        return prob
+    
+    def p_chi_eff(self, chi_eff, xi_eff, omega_eff, skew_eff):
+        prob = truncskewnorm(chi_eff,
+                             xi=xi_eff,
+                             omega=omega_eff,
+                             high=1,
+                             low=-1,
+                             skew=skew_eff)
+        return prob
+        
+    def norm_p_chi_eff(self, xi_eff, omega_eff, skew_eff):
+        prob = self.p_chi_eff(self.chi_eff_diff, xi_eff, omega_eff, skew_eff)
+        norm = trapz(prob, self.chi_eff_diff)
+        return norm
+
+    def p_chi_diff(self, chi_diff, xi_diff, omega_diff, skew_diff):
+        prob = truncskewnorm(chi_diff,
+                             xi=xi_diff,
+                             omega=omega_diff,
+                             high=1,
+                             low=-1,
+                             skew=skew_diff)
+        return prob
+    
+    def norm_p_chi_diff(self, xi_diff, omega_diff, skew_diff):
+        prob = self.p_chi_diff(self.chi_eff_diff, xi_diff, omega_diff, skew_diff)
+        norm = trapz(prob, self.chi_eff_diff)
+        return norm
+    
+    def p_rho(self, dataset, alpha_rho, beta_rho):
+        prob = beta_dist(dataset["rho_1"],
+                         alpha=alpha_rho,
+                         beta=beta_rho,
+                         scale=1)
+        prob *= beta_dist(dataset["rho_2"],
+                          alpha=alpha_rho,
+                          beta=beta_rho,
+                          scale=1)        
+        return prob
 
 
 class SplineSpinMagnitudeIdentical(InterpolatedNoBaseModelIdentical):

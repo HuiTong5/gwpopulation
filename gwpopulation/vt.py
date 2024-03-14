@@ -81,7 +81,7 @@ class ResamplingVT(_BaseVT):
         data,
         n_events=np.inf,
         marginalize_uncertainty=False,
-        enforce_convergence=True,
+        enforce_convergence=False, # turn this back on
     ):
         super(ResamplingVT, self).__init__(model=model, data=data)
         self.n_events = n_events

@@ -791,3 +791,126 @@ class BrokenPowerLawPeakSmoothedMassDistribution(BaseSmoothedMassDistribution):
     @property
     def kwargs(self):
         return dict(gaussian_mass_maximum=self.mmax)
+
+
+class BaseSmoothedComponentMassDistribution(object):
+    """
+    Generic smoothed mass distribution base class.
+
+    Parameters
+    ==========
+    mmin: float
+        The minimum mass considered for numerical normalization
+    mmax: float
+        The maximum mass considered for numerical normalization
+    """
+
+    mass_model = None
+
+    @property
+    def variable_names(self):
+        vars = getattr(
+            self.mass_model,
+            "variable_names",
+            inspect.getfullargspec(self.mass_model).args[1:],
+        )
+        vars += ["beta", "delta_m"]
+        vars = set(vars).difference(self.kwargs.keys())
+        return vars
+
+    @property
+    def kwargs(self):
+        return dict()
+
+    def __init__(self, mmin=2, mmax=100, normalization_shape=1000):
+        self.mmin = mmin
+        self.mmax = mmax
+        self.qmin = mmin/mmax
+        self.ms = xp.linspace(mmin, mmax, normalization_shape)
+        self.m1s, self.m2s = xp.meshgrid(self.ms, self.ms)
+        self.norm_dataset = dict(mass_1 = self.m1s, mass_2 = self.m2s)
+
+    def __call__(self, dataset, *args, **kwargs):
+        beta = kwargs.pop("beta")
+        mmin = kwargs.get("mmin", self.mmin)
+        mmax = kwargs.get("mmax", self.mmax)
+        if mmin < self.mmin:
+            raise ValueError(
+                f"{self.__class__}: mmin ({mmin}) < self.mmin ({self.mmin})"
+            )
+        if mmax > self.mmax:
+            raise ValueError(
+                f"{self.__class__}: mmax ({mmax}) > self.mmax ({self.mmax})"
+            )
+        delta_m = kwargs.get("delta_m", 0)
+        p_m = self.p_m(dataset, **kwargs, **self.kwargs)
+        p_pairing = self.p_pairing(dataset, beta=beta)
+        norm = self.norm(beta=beta, **kwargs, **self.kwargs)
+        prob = p_m * p_pairing / norm
+        return prob
+
+    def p_m(self, dataset, **kwargs):
+        mmin = kwargs.get("mmin", self.mmin)
+        delta_m = kwargs.pop("delta_m", 0)
+        p_m1 = self.__class__.mass_model(dataset["mass_1"], **kwargs)
+        p_m1 *= self.smoothing(
+            dataset["mass_1"], mmin=mmin, mmax=self.mmax, delta_m=delta_m
+        )
+        p_m2 = self.__class__.mass_model(dataset["mass_2"], **kwargs)
+        p_m2 *= self.smoothing(
+            dataset["mass_2"], mmin=mmin, mmax=self.mmax, delta_m=delta_m
+        )
+        return p_m1 * p_m2
+
+    def p_pairing(self, dataset, beta):
+        p_pairing = powerlaw(dataset["mass_2"]/dataset["mass_1"], beta, 1, self.qmin)
+        p_pairing *= (dataset["mass_1"] >= dataset["mass_2"])
+        return xp.nan_to_num(p_pairing)
+
+    def norm(self, beta, **kwargs):
+        p_m = self.p_m(self.norm_dataset, **kwargs)
+        p_pairing = self.p_pairing(self.norm_dataset, beta=beta)
+        prob = p_m*p_pairing
+        norm = trapz(prob, self.ms)
+        norm = trapz(norm, self.ms)
+        return norm
+
+    @staticmethod
+    def smoothing(masses, mmin, mmax, delta_m):
+        """
+        Apply a one sided window between mmin and mmin + delta_m to the
+        mass pdf.
+
+        The upper cut off is a step function,
+        the lower cutoff is a logistic rise over delta_m solar masses.
+
+        See T&T18 Eqs 7-8
+        Note that there is a sign error in that paper.
+
+        S = (f(m - mmin, delta_m) + 1)^{-1}
+        f(m') = delta_m / m' + delta_m / (m' - delta_m)
+
+        See also, https://en.wikipedia.org/wiki/Window_function#Planck-taper_window
+        """
+        window = xp.ones_like(masses)
+        if delta_m > 0.0:
+            smoothing_region = (masses >= mmin) & (masses < (mmin + delta_m))
+            shifted_mass = masses[smoothing_region] - mmin
+            if shifted_mass.size:
+                exponent = xp.nan_to_num(
+                    delta_m / shifted_mass + delta_m / (shifted_mass - delta_m)
+                )
+                window[smoothing_region] = 1 / (xp.exp(exponent) + 1)
+        window[(masses < mmin) | (masses > mmax)] = 0
+        return window
+
+        
+class SinglePeakSmoothedComponentMassDistribution(BaseSmoothedComponentMassDistribution):
+    """
+    """
+
+    mass_model = two_component_single
+
+    @property
+    def kwargs(self):
+        return dict(gaussian_mass_maximum=self.mmax)
