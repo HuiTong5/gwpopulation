@@ -12,10 +12,10 @@ from .models.redshift import _Redshift, total_four_volume
 class _BaseVT(object):
     def __init__(self, model, data):
         self.data = data
-        if isinstance(model, list):
-            model = Model(model)
-        elif not isinstance(model, Model):
-            model = Model([model])
+        # if isinstance(model, list):
+        #     model = Model(model)
+        # elif not isinstance(model, Model):
+        #     model = Model([model])
         self.model = model
 
     def __call__(self, *args, **kwargs):
@@ -90,7 +90,7 @@ class ResamplingVT(_BaseVT):
         self.redshift_model = None
         self.marginalize_uncertainty = marginalize_uncertainty
         self.enforce_convergence = enforce_convergence
-        for _model in self.model.models:
+        for _model in self.model['hyper_prior'].models:
             if isinstance(_model, _Redshift):
                 self.redshift_model = _model
         if self.redshift_model is None:
@@ -160,8 +160,11 @@ class ResamplingVT(_BaseVT):
         return vt_factor
 
     def detection_efficiency(self, parameters):
-        self.model.parameters.update(parameters)
-        weights = self.model.prob(self.data) / self.data["prior"]
+        self.model['hyper_prior'].parameters.update(parameters)
+        self.model['hyper_prior2'].parameters.update(parameters)
+        weights1 = self.model['hyper_prior'].prob(self.data) / self.data["prior"]
+        weights2 = self.model['hyper_prior2'].prob(self.data) / self.data["prior"]
+        weights = parameters["likelihood_mix"]*weights1 + (1-parameters["likelihood_mix"])*weights2
         mu = float(xp.sum(weights) / self.total_injections)
         var = float(
             xp.sum(weights**2) / self.total_injections**2

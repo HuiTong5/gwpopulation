@@ -1014,7 +1014,7 @@ class BaseSmoothedMassDistribution1(object):
 
     def p_m1(self, dataset, **kwargs):
         mmin = kwargs.get("mmin_1", self.mmin)
-        delta_m = kwargs.pop("delta_m", 0)
+        delta_m = kwargs.pop("delta_m_1", 0)
         p_m = self.__class__.primary_model(dataset["mass_1"], **kwargs)
         p_m *= self.smoothing(
             dataset["mass_1"], mmin=mmin, mmax=self.mmax, delta_m=delta_m
@@ -1110,7 +1110,7 @@ class BaseSmoothedMassDistribution1(object):
         window[(masses < mmin) | (masses > mmax)] = 0
         return window
 
-class SinglePeakSmoothedMassDistribution_1(BaseSmoothedMassDistribution1):
+class SinglePeakSmoothedMassDistribution1(BaseSmoothedMassDistribution1):
     """
     Powerlaw + peak model for two-dimensional mass distribution with low
     mass smoothing.
@@ -1248,7 +1248,7 @@ class BaseSmoothedMassDistribution2(object):
 
     def p_m1(self, dataset, **kwargs):
         mmin = kwargs.get("mmin_2", self.mmin)
-        delta_m = kwargs.pop("delta_m", 0)
+        delta_m = kwargs.pop("delta_m_2", 0)
         p_m = self.__class__.primary_model(dataset["mass_1"], **kwargs)
         p_m *= self.smoothing(
             dataset["mass_1"], mmin=mmin, mmax=self.mmax, delta_m=delta_m
@@ -1344,7 +1344,7 @@ class BaseSmoothedMassDistribution2(object):
         window[(masses < mmin) | (masses > mmax)] = 0
         return window
 
-class SinglePeakSmoothedMassDistribution_2(BaseSmoothedMassDistribution2):
+class SinglePeakSmoothedMassDistribution2(BaseSmoothedMassDistribution2):
     """
     Powerlaw + peak model for two-dimensional mass distribution with low
     mass smoothing.
