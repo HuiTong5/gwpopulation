@@ -1383,3 +1383,472 @@ class SinglePeakSmoothedMassDistribution2(BaseSmoothedMassDistribution2):
     @property
     def kwargs(self):
         return dict(gaussian_mass_maximum=self.mmax)
+
+def two_component_single3(
+    mass, alpha_3, mmin_3, mmax_3, lam_3, mpp_3, sigpp_3, gaussian_mass_maximum=100
+):
+    r"""
+    Power law model for one-dimensional mass distribution with a Gaussian component.
+
+    .. math::
+        p(m) &= (1 - \lambda_m) p_{\text{pow}} + \lambda_m p_{\text{norm}}
+
+        p_{\text{pow}}(m) &\propto m^{-\alpha} : m_\min \leq m < m_\max
+
+        p_{\text{norm}}(m) &\propto \exp\left(-\frac{(m - \mu_{m})^2}{2\sigma^2_m}\right)
+
+    Parameters
+    ----------
+    mass: array-like
+        Array of mass values (:math:`m`).
+    alpha: float
+        Negative power law exponent for the black hole distribution (:math:`\alpha`).
+    mmin: float
+        Minimum black hole mass (:math:`m_\min`).
+    mmax: float
+        Maximum black hole mass (:math:`m_\max`).
+    lam: float
+        Fraction of black holes in the Gaussian component (:math:`\lambda_m`).
+    mpp: float
+        Mean of the Gaussian component (:math:`\mu_m`).
+    sigpp: float
+        Standard deviation of the Gaussian component (:math:`\sigma_m`).
+    gaussian_mass_maximum: float, optional
+        Upper truncation limit of the Gaussian component. (default: 100)
+    """
+    p_pow = powerlaw(mass, alpha=-alpha_3, high=mmax_3, low=mmin_3)
+    p_norm = truncnorm(mass, mu=mpp_3, sigma=sigpp_3, high=gaussian_mass_maximum, low=mmin_3)
+    prob = (1 - lam_3) * p_pow + lam_3 * p_norm
+    return prob
+
+class BaseSmoothedMassDistribution3(object):
+    """
+    Generic smoothed mass distribution base class.
+
+    Implements the low-mass smoothing and power-law mass ratio
+    distribution. Requires p_m1 to be implemented.
+
+    Parameters
+    ==========
+    mmin: float
+        The minimum mass considered for numerical normalization
+    mmax: float
+        The maximum mass considered for numerical normalization
+    """
+
+    primary_model = None
+
+    @property
+    def variable_names(self):
+        vars = getattr(
+            self.primary_model,
+            "variable_names",
+            inspect.getfullargspec(self.primary_model).args[1:],
+        )
+        vars += ["beta_3", "delta_m_3"]
+        vars = set(vars).difference(self.kwargs.keys())
+        return vars
+
+    @property
+    def kwargs(self):
+        return dict()
+
+    def __init__(self, mmin=2, mmax=100, normalization_shape=(1000, 500)):
+        self.mmin = mmin
+        self.mmax = mmax
+        self.m1s = xp.linspace(mmin, mmax, normalization_shape[0])
+        self.qs = xp.linspace(0.001, 1, normalization_shape[1])
+        self.dm = self.m1s[1] - self.m1s[0]
+        self.dq = self.qs[1] - self.qs[0]
+        self.m1s_grid, self.qs_grid = xp.meshgrid(self.m1s, self.qs)
+
+    def __call__(self, dataset, *args, **kwargs):
+        beta = kwargs.pop("beta_3")
+        mmin = kwargs.get("mmin_3", self.mmin)
+        mmax = kwargs.get("mmax_3", self.mmax)
+        if mmin < self.mmin:
+            raise ValueError(
+                "{self.__class__}: mmin ({mmin}) < self.mmin ({self.mmin})"
+            )
+        if mmax > self.mmax:
+            raise ValueError(
+                "{self.__class__}: mmax ({mmax}) > self.mmax ({self.mmax})"
+            )
+        delta_m = kwargs.get("delta_m_3", 0)
+        p_m1 = self.p_m1(dataset, **kwargs, **self.kwargs)
+        p_q = self.p_q(dataset, beta=beta, mmin=mmin, delta_m=delta_m)
+        prob = p_m1 * p_q
+        return prob
+
+    def p_m1(self, dataset, **kwargs):
+        mmin = kwargs.get("mmin_3", self.mmin)
+        delta_m = kwargs.pop("delta_m_3", 0)
+        p_m = self.__class__.primary_model(dataset["mass_1"], **kwargs)
+        p_m *= self.smoothing(
+            dataset["mass_1"], mmin=mmin, mmax=self.mmax, delta_m=delta_m
+        )
+        norm = self.norm_p_m1(delta_m=delta_m, **kwargs)
+        return p_m / norm
+
+    def norm_p_m1(self, delta_m, **kwargs):
+        """Calculate the normalisation factor for the primary mass"""
+        mmin = kwargs.get("mmin_3", self.mmin)
+        if delta_m == 0:
+            return 1
+        p_m = self.__class__.primary_model(self.m1s, **kwargs)
+        p_m *= self.smoothing(self.m1s, mmin=mmin, mmax=self.mmax, delta_m=delta_m)
+
+        norm = trapz(p_m, self.m1s)
+        return norm
+
+    def p_q(self, dataset, beta, mmin, delta_m):
+        p_q = powerlaw(dataset["mass_ratio"], beta, 1, mmin / dataset["mass_1"])
+        p_q *= self.smoothing(
+            dataset["mass_1"] * dataset["mass_ratio"],
+            mmin=mmin,
+            mmax=dataset["mass_1"],
+            delta_m=delta_m,
+        )
+        try:
+            p_q /= self.norm_p_q(beta=beta, mmin=mmin, delta_m=delta_m)
+        except (AttributeError, TypeError, ValueError):
+            self._cache_q_norms(dataset["mass_1"])
+            p_q /= self.norm_p_q(beta=beta, mmin=mmin, delta_m=delta_m)
+
+        return xp.nan_to_num(p_q)
+
+    def norm_p_q(self, beta, mmin, delta_m):
+        """Calculate the mass ratio normalisation by linear interpolation"""
+        if delta_m == 0.0:
+            return 1
+        p_q = powerlaw(self.qs_grid, beta, 1, mmin / self.m1s_grid)
+        p_q *= self.smoothing(
+            self.m1s_grid * self.qs_grid, mmin=mmin, mmax=self.m1s_grid, delta_m=delta_m
+        )
+        norms = trapz(p_q, self.qs, axis=0)
+
+        all_norms = (
+            norms[self.n_below] * (1 - self.step) + norms[self.n_above] * self.step
+        )
+
+        return all_norms
+
+    def _cache_q_norms(self, masses):
+        """
+        Cache the information necessary for linear interpolation of the mass
+        ratio normalisation
+        """
+        self.n_below = xp.zeros_like(masses, dtype=int) - 1
+        m_below = xp.zeros_like(masses)
+        for mm in self.m1s:
+            self.n_below += masses > mm
+            m_below[masses > mm] = mm
+        self.n_above = self.n_below + 1
+        max_idx = len(self.m1s)
+        self.n_below[self.n_below < 0] = 0
+        self.n_above[self.n_above == max_idx] = max_idx - 1
+        self.step = xp.minimum((masses - m_below) / self.dm, 1)
+
+    @staticmethod
+    def smoothing(masses, mmin, mmax, delta_m):
+        """
+        Apply a one sided window between mmin and mmin + delta_m to the
+        mass pdf.
+
+        The upper cut off is a step function,
+        the lower cutoff is a logistic rise over delta_m solar masses.
+
+        See T&T18 Eqs 7-8
+        Note that there is a sign error in that paper.
+
+        S = (f(m - mmin, delta_m) + 1)^{-1}
+        f(m') = delta_m / m' + delta_m / (m' - delta_m)
+
+        See also, https://en.wikipedia.org/wiki/Window_function#Planck-taper_window
+        """
+        window = xp.ones_like(masses)
+        if delta_m > 0.0:
+            smoothing_region = (masses >= mmin) & (masses < (mmin + delta_m))
+            shifted_mass = masses[smoothing_region] - mmin
+            if shifted_mass.size:
+                exponent = xp.nan_to_num(
+                    delta_m / shifted_mass + delta_m / (shifted_mass - delta_m)
+                )
+                window[smoothing_region] = 1 / (xp.exp(exponent) + 1)
+        window[(masses < mmin) | (masses > mmax)] = 0
+        return window
+
+class SinglePeakSmoothedMassDistribution3(BaseSmoothedMassDistribution3):
+    """
+    Powerlaw + peak model for two-dimensional mass distribution with low
+    mass smoothing.
+
+    https://arxiv.org/abs/1801.02699 Eq. (11) (T&T18)
+
+    Parameters
+    ----------
+    dataset: dict
+        Dictionary of numpy arrays for 'mass_1' and 'mass_ratio'.
+    alpha_1: float
+        Powerlaw exponent for more massive black hole.
+    beta_1: float
+        Power law exponent of the mass ratio distribution.
+    mmin_1: float
+        Minimum black hole mass.
+    mmax_1: float
+        Maximum mass in the powerlaw distributed component.
+    lam_1: float
+        Fraction of black holes in the Gaussian component.
+    mpp_1: float
+        Mean of the Gaussian component.
+    sigpp_1: float
+        Standard deviation of the Gaussian component.
+    delta_m_1: float
+        Rise length of the low end of the mass distribution.
+
+    Notes
+    -----
+    The Gaussian component is bounded between [`mmin`, `self.mmax`].
+    This means that the `mmax` parameter is _not_ the global maximum.
+    """
+
+    primary_model = two_component_single3
+
+    @property
+    def kwargs(self):
+        return dict(gaussian_mass_maximum=self.mmax)
+
+def two_component_single4(
+    mass, alpha_4, mmin_4, mmax_4, lam_4, mpp_4, sigpp_4, gaussian_mass_maximum=100
+):
+    r"""
+    Power law model for one-dimensional mass distribution with a Gaussian component.
+
+    .. math::
+        p(m) &= (1 - \lambda_m) p_{\text{pow}} + \lambda_m p_{\text{norm}}
+
+        p_{\text{pow}}(m) &\propto m^{-\alpha} : m_\min \leq m < m_\max
+
+        p_{\text{norm}}(m) &\propto \exp\left(-\frac{(m - \mu_{m})^2}{2\sigma^2_m}\right)
+
+    Parameters
+    ----------
+    mass: array-like
+        Array of mass values (:math:`m`).
+    alpha: float
+        Negative power law exponent for the black hole distribution (:math:`\alpha`).
+    mmin: float
+        Minimum black hole mass (:math:`m_\min`).
+    mmax: float
+        Maximum black hole mass (:math:`m_\max`).
+    lam: float
+        Fraction of black holes in the Gaussian component (:math:`\lambda_m`).
+    mpp: float
+        Mean of the Gaussian component (:math:`\mu_m`).
+    sigpp: float
+        Standard deviation of the Gaussian component (:math:`\sigma_m`).
+    gaussian_mass_maximum: float, optional
+        Upper truncation limit of the Gaussian component. (default: 100)
+    """
+    p_pow = powerlaw(mass, alpha=-alpha_4, high=mmax_4, low=mmin_4)
+    p_norm = truncnorm(mass, mu=mpp_4, sigma=sigpp_4, high=gaussian_mass_maximum, low=mmin_4)
+    prob = (1 - lam_4) * p_pow + lam_4 * p_norm
+    return prob
+
+class BaseSmoothedMassDistribution4(object):
+    """
+    Generic smoothed mass distribution base class.
+
+    Implements the low-mass smoothing and power-law mass ratio
+    distribution. Requires p_m1 to be implemented.
+
+    Parameters
+    ==========
+    mmin: float
+        The minimum mass considered for numerical normalization
+    mmax: float
+        The maximum mass considered for numerical normalization
+    """
+
+    primary_model = None
+
+    @property
+    def variable_names(self):
+        vars = getattr(
+            self.primary_model,
+            "variable_names",
+            inspect.getfullargspec(self.primary_model).args[1:],
+        )
+        vars += ["beta_4", "delta_m_4"]
+        vars = set(vars).difference(self.kwargs.keys())
+        return vars
+
+    @property
+    def kwargs(self):
+        return dict()
+
+    def __init__(self, mmin=2, mmax=100, normalization_shape=(1000, 500)):
+        self.mmin = mmin
+        self.mmax = mmax
+        self.m1s = xp.linspace(mmin, mmax, normalization_shape[0])
+        self.qs = xp.linspace(0.001, 1, normalization_shape[1])
+        self.dm = self.m1s[1] - self.m1s[0]
+        self.dq = self.qs[1] - self.qs[0]
+        self.m1s_grid, self.qs_grid = xp.meshgrid(self.m1s, self.qs)
+
+    def __call__(self, dataset, *args, **kwargs):
+        beta = kwargs.pop("beta_4")
+        mmin = kwargs.get("mmin_4", self.mmin)
+        mmax = kwargs.get("mmax_4", self.mmax)
+        if mmin < self.mmin:
+            raise ValueError(
+                "{self.__class__}: mmin ({mmin}) < self.mmin ({self.mmin})"
+            )
+        if mmax > self.mmax:
+            raise ValueError(
+                "{self.__class__}: mmax ({mmax}) > self.mmax ({self.mmax})"
+            )
+        delta_m = kwargs.get("delta_m_4", 0)
+        p_m1 = self.p_m1(dataset, **kwargs, **self.kwargs)
+        p_q = self.p_q(dataset, beta=beta, mmin=mmin, delta_m=delta_m)
+        prob = p_m1 * p_q
+        return prob
+
+    def p_m1(self, dataset, **kwargs):
+        mmin = kwargs.get("mmin_4", self.mmin)
+        delta_m = kwargs.pop("delta_m_4", 0)
+        p_m = self.__class__.primary_model(dataset["mass_1"], **kwargs)
+        p_m *= self.smoothing(
+            dataset["mass_1"], mmin=mmin, mmax=self.mmax, delta_m=delta_m
+        )
+        norm = self.norm_p_m1(delta_m=delta_m, **kwargs)
+        return p_m / norm
+
+    def norm_p_m1(self, delta_m, **kwargs):
+        """Calculate the normalisation factor for the primary mass"""
+        mmin = kwargs.get("mmin_4", self.mmin)
+        if delta_m == 0:
+            return 1
+        p_m = self.__class__.primary_model(self.m1s, **kwargs)
+        p_m *= self.smoothing(self.m1s, mmin=mmin, mmax=self.mmax, delta_m=delta_m)
+
+        norm = trapz(p_m, self.m1s)
+        return norm
+
+    def p_q(self, dataset, beta, mmin, delta_m):
+        p_q = powerlaw(dataset["mass_ratio"], beta, 1, mmin / dataset["mass_1"])
+        p_q *= self.smoothing(
+            dataset["mass_1"] * dataset["mass_ratio"],
+            mmin=mmin,
+            mmax=dataset["mass_1"],
+            delta_m=delta_m,
+        )
+        try:
+            p_q /= self.norm_p_q(beta=beta, mmin=mmin, delta_m=delta_m)
+        except (AttributeError, TypeError, ValueError):
+            self._cache_q_norms(dataset["mass_1"])
+            p_q /= self.norm_p_q(beta=beta, mmin=mmin, delta_m=delta_m)
+
+        return xp.nan_to_num(p_q)
+
+    def norm_p_q(self, beta, mmin, delta_m):
+        """Calculate the mass ratio normalisation by linear interpolation"""
+        if delta_m == 0.0:
+            return 1
+        p_q = powerlaw(self.qs_grid, beta, 1, mmin / self.m1s_grid)
+        p_q *= self.smoothing(
+            self.m1s_grid * self.qs_grid, mmin=mmin, mmax=self.m1s_grid, delta_m=delta_m
+        )
+        norms = trapz(p_q, self.qs, axis=0)
+
+        all_norms = (
+            norms[self.n_below] * (1 - self.step) + norms[self.n_above] * self.step
+        )
+
+        return all_norms
+
+    def _cache_q_norms(self, masses):
+        """
+        Cache the information necessary for linear interpolation of the mass
+        ratio normalisation
+        """
+        self.n_below = xp.zeros_like(masses, dtype=int) - 1
+        m_below = xp.zeros_like(masses)
+        for mm in self.m1s:
+            self.n_below += masses > mm
+            m_below[masses > mm] = mm
+        self.n_above = self.n_below + 1
+        max_idx = len(self.m1s)
+        self.n_below[self.n_below < 0] = 0
+        self.n_above[self.n_above == max_idx] = max_idx - 1
+        self.step = xp.minimum((masses - m_below) / self.dm, 1)
+
+    @staticmethod
+    def smoothing(masses, mmin, mmax, delta_m):
+        """
+        Apply a one sided window between mmin and mmin + delta_m to the
+        mass pdf.
+
+        The upper cut off is a step function,
+        the lower cutoff is a logistic rise over delta_m solar masses.
+
+        See T&T18 Eqs 7-8
+        Note that there is a sign error in that paper.
+
+        S = (f(m - mmin, delta_m) + 1)^{-1}
+        f(m') = delta_m / m' + delta_m / (m' - delta_m)
+
+        See also, https://en.wikipedia.org/wiki/Window_function#Planck-taper_window
+        """
+        window = xp.ones_like(masses)
+        if delta_m > 0.0:
+            smoothing_region = (masses >= mmin) & (masses < (mmin + delta_m))
+            shifted_mass = masses[smoothing_region] - mmin
+            if shifted_mass.size:
+                exponent = xp.nan_to_num(
+                    delta_m / shifted_mass + delta_m / (shifted_mass - delta_m)
+                )
+                window[smoothing_region] = 1 / (xp.exp(exponent) + 1)
+        window[(masses < mmin) | (masses > mmax)] = 0
+        return window
+
+class SinglePeakSmoothedMassDistribution4(BaseSmoothedMassDistribution4):
+    """
+    Powerlaw + peak model for two-dimensional mass distribution with low
+    mass smoothing.
+
+    https://arxiv.org/abs/1801.02699 Eq. (11) (T&T18)
+
+    Parameters
+    ----------
+    dataset: dict
+        Dictionary of numpy arrays for 'mass_1' and 'mass_ratio'.
+    alpha_1: float
+        Powerlaw exponent for more massive black hole.
+    beta_1: float
+        Power law exponent of the mass ratio distribution.
+    mmin_1: float
+        Minimum black hole mass.
+    mmax_1: float
+        Maximum mass in the powerlaw distributed component.
+    lam_1: float
+        Fraction of black holes in the Gaussian component.
+    mpp_1: float
+        Mean of the Gaussian component.
+    sigpp_1: float
+        Standard deviation of the Gaussian component.
+    delta_m_1: float
+        Rise length of the low end of the mass distribution.
+
+    Notes
+    -----
+    The Gaussian component is bounded between [`mmin`, `self.mmax`].
+    This means that the `mmax` parameter is _not_ the global maximum.
+    """
+
+    primary_model = two_component_single4
+
+    @property
+    def kwargs(self):
+        return dict(gaussian_mass_maximum=self.mmax)
+    
