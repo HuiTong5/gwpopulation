@@ -160,8 +160,8 @@ class ResamplingVT(_BaseVT):
         return vt_factor
 
     def detection_efficiency(self, parameters):
-        self.model.parameters.update(parameters)
-        weights = self.model.prob(self.data) / self.data["prior"]
+        self.model['hyper_prior'].parameters.update(parameters)
+        weights = self.model['hyper_prior'].prob(self.data) / self.data["prior"]
         mu = float(xp.sum(weights) / self.total_injections)
         var = float(
             xp.sum(weights**2) / self.total_injections**2
