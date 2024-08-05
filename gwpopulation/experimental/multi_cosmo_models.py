@@ -178,7 +178,7 @@ class TwoNonCachingModel:
     """
     Modified version of bilby.hyper.model.Model that disables caching for jax.
     """
-r"""
+    r"""
     Population model that combines a set of factorizable models.
 
     This should take population parameters and return the probability.
