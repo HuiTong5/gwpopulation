@@ -438,13 +438,23 @@ class HyperparameterLikelihood(Likelihood):
 
     @property
     def meta_data(self):
-        return dict(
-            model=[get_name(model) for model in self.hyper_prior.models],
-            data={key: to_numpy(self.data[key]) for key in self.data},
-            n_events=self.n_posteriors,
-            sampling_prior=to_numpy(self.sampling_prior),
-            samples_per_posterior=self.samples_per_posterior,
-        )
+        try:
+            return dict(
+                model=[get_name(model) for model in self.hyper_prior.models],
+                data={key: to_numpy(self.data[key]) for key in self.data},
+                n_events=self.n_posteriors,
+                sampling_prior=to_numpy(self.sampling_prior),
+                samples_per_posterior=self.samples_per_posterior,
+            )
+        except:
+            return dict(
+                model1=[get_name(model) for model in self.hyper_prior.models1],
+                model2=[get_name(model) for model in self.hyper_prior.models2],
+                data={key: to_numpy(self.data[key]) for key in self.data},
+                n_events=self.n_posteriors,
+                sampling_prior=to_numpy(self.sampling_prior),
+                samples_per_posterior=self.samples_per_posterior,
+            )
 
 
 class RateLikelihood(HyperparameterLikelihood):

@@ -45,6 +45,7 @@ Note that the computational cost of this approach scales exponentially with the 
 
 import numpy as np
 from bilby.hyper.model import Model
+from gwpopulation.experimental.multi_cosmo_models import TwoCosmoModel
 
 from .models.redshift import _Redshift, total_four_volume
 from .utils import to_number
@@ -63,7 +64,7 @@ class _BaseVT:
         self.data = data
         if isinstance(model, list):
             model = Model(model)
-        elif not isinstance(model, Model):
+        elif not isinstance(model, Model) and not isinstance(model, TwoCosmoModel):
             model = Model([model])
         self.model = model
 
@@ -157,7 +158,7 @@ class ResamplingVT(_BaseVT):
         self.redshift_model = None
         self.marginalize_uncertainty = marginalize_uncertainty
         self.enforce_convergence = enforce_convergence
-        for _model in self.model.models:
+        for _model in self.model.models1:
             if isinstance(_model, _Redshift):
                 self.redshift_model = _model
         if self.redshift_model is None:

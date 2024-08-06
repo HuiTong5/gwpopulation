@@ -94,7 +94,9 @@ class TwoCosmoMixin:
         if isinstance(self._cosmo1, WCosmoMixin):
             return self._cosmo1
         else:
-            return self._cosmo1(**self.cosmology_variables1(parameters))
+            parameters=self.cosmology_variables1(parameters)
+            _mapping={'H01':'H0','Om01':'Om0','w01':'w0'}
+            return self._cosmo1(**{_mapping[key]:parameters[key] for key in _mapping.keys()})
     
     def cosmology2(self, parameters):
         """
@@ -113,7 +115,9 @@ class TwoCosmoMixin:
         if isinstance(self._cosmo2, WCosmoMixin):
             return self._cosmo2
         else:
-            return self._cosmo2(**self.cosmology_variables2(parameters))
+            parameters=self.cosmology_variables2(parameters)
+            _mapping={'H02':'H0','Om02':'Om0','w02':'w0'}
+            return self._cosmo2(**{_mapping[key]:parameters[key] for key in _mapping.keys()})
 
     def detector_frame_to_source_frame(self, data, **parameters):
         r"""
@@ -137,7 +141,8 @@ class TwoCosmoMixin:
             The Jacobian term.
         """
 
-        samples = dict()
+        samples1 = dict()
+        samples2 = dict()
         if "luminosity_distance" in data.keys():
             cosmo1 = self.cosmology1(self.parameters)
             samples1["redshift"] = z_at_value(
