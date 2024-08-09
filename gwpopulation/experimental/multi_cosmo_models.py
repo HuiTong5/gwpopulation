@@ -29,18 +29,18 @@ class TwoCosmoMixin:
         wcosmo_disable_units()
         self.cosmo_model1 = cosmo_model1
         if self.cosmo_model1 == "FlatwCDM":
-            self.cosmology_names1 = ["H01", "Om01", "w01"]
+            self.cosmology_names1 = ["H01", "Om0", "w0"]
         elif self.cosmo_model1 == "FlatLambdaCDM":
-            self.cosmology_names1 = ["H01", "Om01"]
+            self.cosmology_names1 = ["H01", "Om0"]
         else:
             self.cosmology_names1 = []
         self._cosmo1 = available[cosmo_model1]
 
         self.cosmo_model2 = cosmo_model2
         if self.cosmo_model2 == "FlatwCDM":
-            self.cosmology_names2 = ["H02", "Om02", "w02"]
+            self.cosmology_names2 = ["H02", "Om0", "w0"]
         elif self.cosmo_model2 == "FlatLambdaCDM":
-            self.cosmology_names2 = ["H02", "Om02"]
+            self.cosmology_names2 = ["H02", "Om0"]
         else:
             self.cosmology_names2 = []
         self._cosmo2 = available[cosmo_model2]
@@ -95,7 +95,7 @@ class TwoCosmoMixin:
             return self._cosmo1
         else:
             parameters=self.cosmology_variables1(parameters)
-            _mapping={'H01':'H0','Om01':'Om0','w01':'w0'}
+            _mapping={'H01':'H0','Om0':'Om0','w0':'w0'}
             return self._cosmo1(**{_mapping[key]:parameters[key] for key in _mapping.keys()})
     
     def cosmology2(self, parameters):
@@ -116,7 +116,7 @@ class TwoCosmoMixin:
             return self._cosmo2
         else:
             parameters=self.cosmology_variables2(parameters)
-            _mapping={'H02':'H0','Om02':'Om0','w02':'w0'}
+            _mapping={'H02':'H0','Om0':'Om0','w0':'w0'}
             return self._cosmo2(**{_mapping[key]:parameters[key] for key in _mapping.keys()})
 
     def detector_frame_to_source_frame(self, data, **parameters):
