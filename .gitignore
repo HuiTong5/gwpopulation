@@ -1,3 +1,4 @@
+*temp_models.py
 *.ignore
 gwpopulation.egg-info
 build/*

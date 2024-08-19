@@ -7,9 +7,122 @@ from operator import ge, gt, ne
 
 import numpy as np
 from scipy import special as scs
+from scipy.special import spence as PL
 
 xp = np
 
+def Di(z):
+
+    """
+    Wrapper for the scipy implmentation of Spence's function.
+    Note that we adhere to the Mathematica convention as detailed in:
+    https://reference.wolfram.com/language/ref/PolyLog.html
+
+    Inputs
+    z: A (possibly complex) scalar or array
+
+    Returns
+    Array equivalent to PolyLog[2,z], as defined by Mathematica
+    """
+
+    return PL(1.-z+0j)
+
+def chi_effective_prior_from_isotropic_spins(xs, q, aMax=1.0):
+
+    """
+    Function defining the conditional priors p(chi_eff|q) corresponding to
+    uniform, isotropic component spin priors from https://github.com/tcallister/effective-spin-priors/blob/main/priors.py.
+
+    Inputs
+    q: Mass ratio value (according to the convention q<1)
+    aMax: Maximum allowed dimensionless component spin magnitude
+    xs: Chi_effective value or values at which we wish to compute prior
+
+    Returns:
+    Array of prior values
+    """
+
+    # Ensure that `xs` is an array and take absolute value
+    xs = xp.reshape(xp.abs(xs),-1)
+
+    # Set up various piecewise cases
+    pdfs = xp.ones(xs.size,dtype=complex)*(-1.)
+    caseZ = (xs==0)
+    caseA = (xs>0)*(xs<aMax*(1.-q)/(1.+q))*(xs<q*aMax/(1.+q))
+    caseB = (xs<aMax*(1.-q)/(1.+q))*(xs>q*aMax/(1.+q))
+    caseC = (xs>aMax*(1.-q)/(1.+q))*(xs<q*aMax/(1.+q))
+    caseD = (xs>aMax*(1.-q)/(1.+q))*(xs<aMax/(1.+q))*(xs>=q*aMax/(1.+q))
+    caseE = (xs>aMax*(1.-q)/(1.+q))*(xs>aMax/(1.+q))*(xs<aMax)
+    caseF = (xs>=aMax)
+
+    # Select relevant effective spins
+    x_A = xs[caseA]
+    x_B = xs[caseB]
+    x_C = xs[caseC]
+    x_D = xs[caseD]
+    x_E = xs[caseE]
+
+    pdfs[caseZ] = (1.+q)/(2.*aMax)*(2.-xp.log(q))
+
+    pdfs[caseA] = (1.+q)/(4.*q*aMax**2)*(
+                    q*aMax*(4.+2.*xp.log(aMax) - xp.log(q**2*aMax**2 - (1.+q)**2*x_A**2))
+                    - 2.*(1.+q)*x_A*xp.arctanh((1.+q)*x_A/(q*aMax))
+                    + (1.+q)*x_A*(Di(-q*aMax/((1.+q)*x_A)) - Di(q*aMax/((1.+q)*x_A)))
+                    )
+
+    pdfs[caseB] = (1.+q)/(4.*q*aMax**2)*(
+                    4.*q*aMax
+                    + 2.*q*aMax*xp.log(aMax)
+                    - 2.*(1.+q)*x_B*xp.arctanh(q*aMax/((1.+q)*x_B))
+                    - q*aMax*xp.log((1.+q)**2*x_B**2 - q**2*aMax**2)
+                    + (1.+q)*x_B*(Di(-q*aMax/((1.+q)*x_B)) - Di(q*aMax/((1.+q)*x_B)))
+                    )
+
+    pdfs[caseC] = (1.+q)/(4.*q*aMax**2)*(
+                    2.*(1.+q)*(aMax-x_C)
+                    - (1.+q)*x_C*xp.log(aMax)**2.
+                    + (aMax + (1.+q)*x_C*xp.log((1.+q)*x_C))*xp.log(q*aMax/(aMax-(1.+q)*x_C))
+                    - (1.+q)*x_C*xp.log(aMax)*(2. + xp.log(q) - xp.log(aMax-(1.+q)*x_C))
+                    + q*aMax*xp.log(aMax/(q*aMax-(1.+q)*x_C))
+                    + (1.+q)*x_C*xp.log((aMax-(1.+q)*x_C)*(q*aMax-(1.+q)*x_C)/q)
+                    + (1.+q)*x_C*(Di(1.-aMax/((1.+q)*x_C)) - Di(q*aMax/((1.+q)*x_C)))
+                    )
+
+    pdfs[caseD] = (1.+q)/(4.*q*aMax**2)*(
+                    -x_D*xp.log(aMax)**2
+                    + 2.*(1.+q)*(aMax-x_D)
+                    + q*aMax*xp.log(aMax/((1.+q)*x_D-q*aMax))
+                    + aMax*xp.log(q*aMax/(aMax-(1.+q)*x_D))
+                    - x_D*xp.log(aMax)*(2.*(1.+q) - xp.log((1.+q)*x_D) - q*xp.log((1.+q)*x_D/aMax))
+                    + (1.+q)*x_D*xp.log((-q*aMax+(1.+q)*x_D)*(aMax-(1.+q)*x_D)/q)
+                    + (1.+q)*x_D*xp.log(aMax/((1.+q)*x_D))*xp.log((aMax-(1.+q)*x_D)/q)
+                    + (1.+q)*x_D*(Di(1.-aMax/((1.+q)*x_D)) - Di(q*aMax/((1.+q)*x_D)))
+                    )
+
+    pdfs[caseE] = (1.+q)/(4.*q*aMax**2)*(
+                    2.*(1.+q)*(aMax-x_E)
+                    - (1.+q)*x_E*xp.log(aMax)**2
+                    + xp.log(aMax)*(
+                        aMax
+                        -2.*(1.+q)*x_E
+                        -(1.+q)*x_E*xp.log(q/((1.+q)*x_E-aMax))
+                        )
+                    - aMax*xp.log(((1.+q)*x_E-aMax)/q)
+                    + (1.+q)*x_E*xp.log(((1.+q)*x_E-aMax)*((1.+q)*x_E-q*aMax)/q)
+                    + (1.+q)*x_E*xp.log((1.+q)*x_E)*xp.log(q*aMax/((1.+q)*x_E-aMax))
+                    - q*aMax*xp.log(((1.+q)*x_E-q*aMax)/aMax)
+                    + (1.+q)*x_E*(Di(1.-aMax/((1.+q)*x_E)) - Di(q*aMax/((1.+q)*x_E)))
+                    )
+
+    pdfs[caseF] = 0.
+
+    # Deal with spins on the boundary between cases
+    if xp.any(pdfs==-1):
+        boundary = (pdfs==-1)
+        pdfs[boundary] = 0.5*(chi_effective_prior_from_isotropic_spins(q,aMax,xs[boundary]+1e-6)\
+                        + chi_effective_prior_from_isotropic_spins(q,aMax,xs[boundary]-1e-6))
+
+    return xp.real(pdfs)
 
 def apply_conditions(conditions):
     """
