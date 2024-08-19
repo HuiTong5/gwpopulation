@@ -62,56 +62,56 @@ def chi_effective_prior_from_isotropic_spins(xs, q, aMax=1.0):
     x_D = xs[caseD]
     x_E = xs[caseE]
 
-    pdfs[caseZ] = (1.+q)/(2.*aMax)*(2.-xp.log(q))
+    pdfs[caseZ] = (1.+q[caseZ])/(2.*aMax)*(2.-xp.log(q[caseZ]))
 
-    pdfs[caseA] = (1.+q)/(4.*q*aMax**2)*(
-                    q*aMax*(4.+2.*xp.log(aMax) - xp.log(q**2*aMax**2 - (1.+q)**2*x_A**2))
-                    - 2.*(1.+q)*x_A*xp.arctanh((1.+q)*x_A/(q*aMax))
-                    + (1.+q)*x_A*(Di(-q*aMax/((1.+q)*x_A)) - Di(q*aMax/((1.+q)*x_A)))
+    pdfs[caseA] = (1.+q[caseA])/(4.*q[caseA]*aMax**2)*(
+                    q[caseA]*aMax*(4.+2.*xp.log(aMax) - xp.log(q[caseA]**2*aMax**2 - (1.+q[caseA])**2*x_A**2))
+                    - 2.*(1.+q[caseA])*x_A*xp.arctanh((1.+q[caseA])*x_A/(q[caseA]*aMax))
+                    + (1.+q[caseA])*x_A*(Di(-q[caseA]*aMax/((1.+q[caseA])*x_A)) - Di(q[caseA]*aMax/((1.+q[caseA])*x_A)))
                     )
 
-    pdfs[caseB] = (1.+q)/(4.*q*aMax**2)*(
-                    4.*q*aMax
-                    + 2.*q*aMax*xp.log(aMax)
-                    - 2.*(1.+q)*x_B*xp.arctanh(q*aMax/((1.+q)*x_B))
-                    - q*aMax*xp.log((1.+q)**2*x_B**2 - q**2*aMax**2)
-                    + (1.+q)*x_B*(Di(-q*aMax/((1.+q)*x_B)) - Di(q*aMax/((1.+q)*x_B)))
+    pdfs[caseB] = (1.+q[caseB])/(4.*q[caseB]*aMax**2)*(
+                    4.*q[caseB]*aMax
+                    + 2.*q[caseB]*aMax*xp.log(aMax)
+                    - 2.*(1.+q[caseB])*x_B*xp.arctanh(q[caseB]*aMax/((1.+q[caseB])*x_B))
+                    - q[caseB]*aMax*xp.log((1.+q[caseB])**2*x_B**2 - q[caseB]**2*aMax**2)
+                    + (1.+q[caseB])*x_B*(Di(-q[caseB]*aMax/((1.+q[caseB])*x_B)) - Di(q[caseB]*aMax/((1.+q[caseB])*x_B)))
                     )
 
-    pdfs[caseC] = (1.+q)/(4.*q*aMax**2)*(
-                    2.*(1.+q)*(aMax-x_C)
-                    - (1.+q)*x_C*xp.log(aMax)**2.
-                    + (aMax + (1.+q)*x_C*xp.log((1.+q)*x_C))*xp.log(q*aMax/(aMax-(1.+q)*x_C))
-                    - (1.+q)*x_C*xp.log(aMax)*(2. + xp.log(q) - xp.log(aMax-(1.+q)*x_C))
-                    + q*aMax*xp.log(aMax/(q*aMax-(1.+q)*x_C))
-                    + (1.+q)*x_C*xp.log((aMax-(1.+q)*x_C)*(q*aMax-(1.+q)*x_C)/q)
-                    + (1.+q)*x_C*(Di(1.-aMax/((1.+q)*x_C)) - Di(q*aMax/((1.+q)*x_C)))
+    pdfs[caseC] = (1.+q[caseC])/(4.*q[caseC]*aMax**2)*(
+                    2.*(1.+q[caseC])*(aMax-x_C)
+                    - (1.+q[caseC])*x_C*xp.log(aMax)**2.
+                    + (aMax + (1.+q[caseC])*x_C*xp.log((1.+q[caseC])*x_C))*xp.log(q[caseC]*aMax/(aMax-(1.+q[caseC])*x_C))
+                    - (1.+q[caseC])*x_C*xp.log(aMax)*(2. + xp.log(q[caseC]) - xp.log(aMax-(1.+q[caseC])*x_C))
+                    + q[caseC]*aMax*xp.log(aMax/(q[caseC]*aMax-(1.+q[caseC])*x_C))
+                    + (1.+q[caseC])*x_C*xp.log((aMax-(1.+q[caseC])*x_C)*(q[caseC]*aMax-(1.+q[caseC])*x_C)/q[caseC])
+                    + (1.+q[caseC])*x_C*(Di(1.-aMax/((1.+q[caseC])*x_C)) - Di(q[caseC]*aMax/((1.+q[caseC])*x_C)))
                     )
 
-    pdfs[caseD] = (1.+q)/(4.*q*aMax**2)*(
+    pdfs[caseD] = (1.+q[caseD])/(4.*q[caseD]*aMax**2)*(
                     -x_D*xp.log(aMax)**2
-                    + 2.*(1.+q)*(aMax-x_D)
-                    + q*aMax*xp.log(aMax/((1.+q)*x_D-q*aMax))
-                    + aMax*xp.log(q*aMax/(aMax-(1.+q)*x_D))
-                    - x_D*xp.log(aMax)*(2.*(1.+q) - xp.log((1.+q)*x_D) - q*xp.log((1.+q)*x_D/aMax))
-                    + (1.+q)*x_D*xp.log((-q*aMax+(1.+q)*x_D)*(aMax-(1.+q)*x_D)/q)
-                    + (1.+q)*x_D*xp.log(aMax/((1.+q)*x_D))*xp.log((aMax-(1.+q)*x_D)/q)
-                    + (1.+q)*x_D*(Di(1.-aMax/((1.+q)*x_D)) - Di(q*aMax/((1.+q)*x_D)))
+                    + 2.*(1.+q[caseD])*(aMax-x_D)
+                    + q[caseD]*aMax*xp.log(aMax/((1.+q[caseD])*x_D-q[caseD]*aMax))
+                    + aMax*xp.log(q[caseD]*aMax/(aMax-(1.+q[caseD])*x_D))
+                    - x_D*xp.log(aMax)*(2.*(1.+q[caseD]) - xp.log((1.+q[caseD])*x_D) - q[caseD]*xp.log((1.+q[caseD])*x_D/aMax))
+                    + (1.+q[caseD])*x_D*xp.log((-q[caseD]*aMax+(1.+q[caseD])*x_D)*(aMax-(1.+q[caseD])*x_D)/q[caseD])
+                    + (1.+q[caseD])*x_D*xp.log(aMax/((1.+q[caseD])*x_D))*xp.log((aMax-(1.+q[caseD])*x_D)/q[caseD])
+                    + (1.+q[caseD])*x_D*(Di(1.-aMax/((1.+q[caseD])*x_D)) - Di(q[caseD]*aMax/((1.+q[caseD])*x_D)))
                     )
 
-    pdfs[caseE] = (1.+q)/(4.*q*aMax**2)*(
-                    2.*(1.+q)*(aMax-x_E)
-                    - (1.+q)*x_E*xp.log(aMax)**2
+    pdfs[caseE] = (1.+q[caseE])/(4.*q[caseE]*aMax**2)*(
+                    2.*(1.+q[caseE])*(aMax-x_E)
+                    - (1.+q[caseE])*x_E*xp.log(aMax)**2
                     + xp.log(aMax)*(
                         aMax
-                        -2.*(1.+q)*x_E
-                        -(1.+q)*x_E*xp.log(q/((1.+q)*x_E-aMax))
+                        -2.*(1.+q[caseE])*x_E
+                        -(1.+q[caseE])*x_E*xp.log(q[caseE]/((1.+q[caseE])*x_E-aMax))
                         )
-                    - aMax*xp.log(((1.+q)*x_E-aMax)/q)
-                    + (1.+q)*x_E*xp.log(((1.+q)*x_E-aMax)*((1.+q)*x_E-q*aMax)/q)
-                    + (1.+q)*x_E*xp.log((1.+q)*x_E)*xp.log(q*aMax/((1.+q)*x_E-aMax))
-                    - q*aMax*xp.log(((1.+q)*x_E-q*aMax)/aMax)
-                    + (1.+q)*x_E*(Di(1.-aMax/((1.+q)*x_E)) - Di(q*aMax/((1.+q)*x_E)))
+                    - aMax*xp.log(((1.+q[caseE])*x_E-aMax)/q[caseE])
+                    + (1.+q[caseE])*x_E*xp.log(((1.+q[caseE])*x_E-aMax)*((1.+q[caseE])*x_E-q[caseE]*aMax)/q[caseE])
+                    + (1.+q[caseE])*x_E*xp.log((1.+q[caseE])*x_E)*xp.log(q[caseE]*aMax/((1.+q[caseE])*x_E-aMax))
+                    - q[caseE]*aMax*xp.log(((1.+q[caseE])*x_E-q[caseE]*aMax)/aMax)
+                    + (1.+q[caseE])*x_E*(Di(1.-aMax/((1.+q[caseE])*x_E)) - Di(q[caseE]*aMax/((1.+q[caseE])*x_E)))
                     )
 
     pdfs[caseF] = 0.
