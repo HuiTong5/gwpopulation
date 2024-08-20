@@ -7,7 +7,6 @@ from operator import ge, gt, ne
 
 import numpy as np
 from scipy import special as scs
-from scipy.special import spence as PL
 
 xp = np
 
@@ -25,7 +24,7 @@ def Di(z):
     Array equivalent to PolyLog[2,z], as defined by Mathematica
     """
 
-    return PL(1.-z+0j)
+    return scs.spence(1.-z+0j)
 
 def chi_effective_prior_from_isotropic_spins(xs, q, aMax=1.0):
 
