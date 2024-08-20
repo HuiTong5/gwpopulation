@@ -364,4 +364,4 @@ class MultiCosmoModel(MultiNonCachingModel, MultiCosmoMixin):
                 probability[i] *= new_probability
             probability[i] /= jacobian
 
-        return probability
+        return 
