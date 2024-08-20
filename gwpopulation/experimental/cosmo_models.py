@@ -355,13 +355,14 @@ class MultiCosmoModel(MultiNonCachingModel, MultiCosmoMixin):
             :code:`variable_names` attribute is available for the relevant
             model.
         """
-        probability = xp.ones(len(self.model_lists))
+        weighted_probability = 0.
         cosmo = self.cosmology(self.parameters)
         for i, models in enumerate(self.model_lists):
             data_source, jacobian = self.detector_frame_to_source_frame(data_detector, cosmo[i])
             for function in models:
                 new_probability = function(data_source, **self._get_function_parameters(function))
-                probability[i] *= new_probability
-            probability[i] /= jacobian
+                probability *= new_probability
+            probability /= jacobian
+            weighted_probability += self.parameters['likelihood_mix{i}']*probability
 
-        return 
+        return weighted_probability
