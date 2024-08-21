@@ -208,7 +208,7 @@ class MultiCosmoMixin:
         cosmology_lists=list()
         for i, _cosmo in enumerate(self._cosmo_lists):
             _mapping={f'H0_{i}':'H0', f'Om0_{i}':'Om0', f'w0_{i}':'w0'}
-            cosmology_lists.append(_cosmo(**{_mapping[key]: parameters[key] for key in self.cosmology_names[i]}))
+            cosmology_lists.append(_cosmo(**{_mapping[key]: parameters[key] for key in self.cosmology_name_lists[i]}))
         return cosmology_lists
 
     def detector_frame_to_source_frame(self, data, cosmo, **parameters):
