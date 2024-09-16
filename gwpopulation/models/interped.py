@@ -36,7 +36,7 @@ def _setup_interpolant(nodes, values, kind="cubic", backend=None):
     if backend is None:
         backend = xp
 
-    #nodes = to_numpy(nodes)
+    nodes = to_numpy(nodes)
     interpolant = CachingInterpolant(nodes, nodes, kind=kind, backend=backend)
     interpolant.conversion = backend.array(interpolant.conversion)
     interpolant = partial(interpolant, backend.array(values))
