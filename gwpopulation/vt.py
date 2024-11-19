@@ -263,21 +263,33 @@ class ResamplingVT(_BaseVT):
         var: float
             The variance in the estimate of :math:`P_{\rm det}`.
         """            
-        sum_weights = 0.
-        sum_square_weights = 0.
+        # sum_weights = 0.
+        # sum_square_weights = 0.
+        # for subpop in self.subpops:
+        #     self.model[subpop].parameters.update(parameters)
+        #     weights = self.model[subpop].prob(self.data[subpop]) / self.data[subpop]["prior"]
+        #     sum_weights += (
+        #         self.model[subpop].parameters[f'lambda_subpop_{subpop}'] / self.frac_injections[subpop]
+        #         * xp.sum(weights)
+        #     )
+        #     sum_square_weights += (
+        #         (self.model[subpop].parameters[f'lambda_subpop_{subpop}'] / self.frac_injections[subpop])**2
+        #         * xp.sum(weights**2)
+        #     )
+        # mu = to_number(sum_weights / self.total_injections, float)
+        # var = to_number(mu**2 * sum_square_weights / sum_weights**2, float)
+        weights = 0.
         for subpop in self.subpops:
             self.model[subpop].parameters.update(parameters)
-            weights = self.model[subpop].prob(self.data[subpop]) / self.data[subpop]["prior"]
-            sum_weights += (
-                self.model[subpop].parameters[f'lambda_subpop_{subpop}'] / self.frac_injections[subpop]
-                * xp.sum(weights)
-            )
-            sum_square_weights += (
-                (self.model[subpop].parameters[f'lambda_subpop_{subpop}'] / self.frac_injections[subpop])**2
-                * xp.sum(weights**2)
-            )
-        mu = to_number(sum_weights / self.total_injections, float)
-        var = to_number(mu**2 * sum_square_weights / sum_weights**2, float)
+            weights += self.model[subpop].parameters[f'lambda_subpop_{subpop}']*self.model[subpop].prob(self.data[subpop]) / self.data[subpop]["prior"]
+        
+        mu = to_number(xp.sum(weights) / len(data[subpop]["prior"]), float)
+        var = to_number(
+            xp.sum(weights**2) / len(data[subpop]["prior"])**2
+            - mu**2 / len(data[subpop]["prior"]),
+            float,
+        )
+
         return mu, var
 
     def surveyed_hypervolume(self, parameters):
