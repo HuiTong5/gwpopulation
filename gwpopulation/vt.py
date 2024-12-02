@@ -283,10 +283,10 @@ class ResamplingVT(_BaseVT):
             self.model[subpop].parameters.update(parameters)
             weights += self.model[subpop].parameters[f'lambda_subpop_{subpop}']*self.model[subpop].prob(self.data[subpop]) / self.data[subpop]["prior"]
         
-        mu = to_number(xp.sum(weights) / len(data[subpop]["prior"]), float)
+        mu = to_number(xp.sum(weights) / len(self.data[subpop]["prior"]), float)
         var = to_number(
-            xp.sum(weights**2) / len(data[subpop]["prior"])**2
-            - mu**2 / len(data[subpop]["prior"]),
+            xp.sum(weights**2) / len(self.data[subpop]["prior"])**2
+            - mu**2 / len(self.data[subpop]["prior"]),
             float,
         )
 
